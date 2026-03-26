@@ -1,0 +1,113 @@
+{
+  "dashboard": {
+    "title": "TRASSIR Monitoring",
+    "description": "Monitoring dashboard for TRASSIR video surveillance servers",
+    "tags": ["trassir", "cctv"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "title": "Server Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "trassir_up",
+            "legendFormat": "{{server}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": null },
+                { "color": "green", "value": 0.5 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Online Cameras",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "trassir_cameras_online",
+            "legendFormat": "{{server}}"
+          }
+        ]
+      },
+      {
+        "title": "Offline Cameras (Alert)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "trassir_cameras_offline",
+            "legendFormat": "{{server}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "red", "value": 1 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "CPU Usage",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "trassir_cpu_usage_percent",
+            "legendFormat": "{{server}}"
+          }
+        ],
+        "unit": "percent"
+      },
+      {
+        "title": "Uptime (days)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "trassir_uptime_seconds / 86400",
+            "legendFormat": "{{server}}"
+          }
+        ]
+      },
+      {
+        "title": "Archive Depth (days)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "trassir_disks_stat_main_days",
+            "legendFormat": "{{server}} - main"
+          },
+          {
+            "expr": "trassir_disks_stat_subs_days",
+            "legendFormat": "{{server}} - sub"
+          }
+        ]
+      },
+      {
+        "title": "System Status",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "trassir_disks_ok",
+            "legendFormat": "disks"
+          },
+          {
+            "expr": "trassir_database_ok",
+            "legendFormat": "database"
+          },
+          {
+            "expr": "trassir_network_ok",
+            "legendFormat": "network"
+          }
+        ]
+      }
+    ]
+  }
+}
