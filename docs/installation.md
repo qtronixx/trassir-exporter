@@ -23,7 +23,7 @@ nano .env
 ```
 Заполните данные ваших TRASSIR серверов:
 
-env
+```env
 TRASSIR_1_NAME=main-server
 TRASSIR_1_HOST=192.168.1.10
 TRASSIR_1_PORT=8080
@@ -35,6 +35,7 @@ TRASSIR_2_HOST=192.168.1.11
 TRASSIR_2_PORT=8080
 TRASSIR_2_USER=apiusr
 TRASSIR_2_PASSWORD=your_password
+```
 3. Запуск экспортера
 ```bash
 docker compose up -d
@@ -80,7 +81,7 @@ scrape_configs:
   - job_name: 'trassir'
     scrape_interval: 60s
     static_configs:
-      - targets: ['10.10.64.100:8000']
+      - targets: ['your-exporter-ip:8000']
     metrics_path: '/metrics'
 ```
 Перезагрузите Prometheus:
@@ -98,7 +99,7 @@ curl -X POST http://localhost:9090/-/reload
 Проверка работы
 Откройте в браузере:
 
-Экспортер: http://10.10.64.100:8000/metrics
+Экспортер: http://your-exporter-ip:8000/metrics
 
 Prometheus: http://localhost:9090/targets
 
