@@ -13,7 +13,7 @@ scrape_configs:
     metrics_path: '/metrics'
     static_configs:
       - targets:
-          - '10.10.64.100:8000'  # Замените на IP вашего экспортера
+          - 'your-exporter-ip:8000'  # Замените на IP вашего экспортера
         labels:
           environment: 'production'
           service: 'cctv'
