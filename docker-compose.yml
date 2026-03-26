@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  trassir-exporter:
+    build: ./exporter
+    container_name: trassir-exporter
+    restart: unless-stopped
+    ports:
+      - "${EXPORTER_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      - SCRAPE_INTERVAL=${SCRAPE_INTERVAL:-60}
+      - EXPORTER_PORT=${EXPORTER_PORT:-8000}
+      - TIMEOUT=${TIMEOUT:-10}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - monitoring-net
+
+networks:
+  monitoring-net:
+    driver: bridge
