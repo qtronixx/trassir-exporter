@@ -19,6 +19,8 @@ import os
 import time
 import logging
 import threading
+import re
+import json
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -72,8 +74,15 @@ trassir_scrape_duration = Gauge('trassir_scrape_duration_seconds', 'Scrape durat
 trassir_last_scrape = Gauge('trassir_last_scrape_timestamp', 'Last scrape timestamp', ['server'], registry=registry)
 
 
+def clean_json_response(text: str) -> str:
+    """Удаляет комментарии в стиле C (/* ... */) из JSON ответа"""
+    text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+    text = re.sub(r'//.*?$', '', text, flags=re.MULTILINE)
+    return text.strip()
+
+
 def get_servers() -> List[Dict]:
-    """Загружает список TRASSIR серверов из переменных окружения."""
+    """Загружает список TRASSIR серверов из переменных окружения"""
     servers = []
     i = 1
     while True:
@@ -94,16 +103,14 @@ def get_servers() -> List[Dict]:
 
 
 def get_session(server: Dict) -> Optional[str]:
-    """Получает сессию для работы с TRASSIR API."""
+    """Получает сессию для работы с TRASSIR через login"""
     try:
         base_url = f"https://{server['host']}:{server['port']}"
-        params = {
-            'username': server['user'],
-            'password': server['password']
-        }
+        params = {'username': server['user'], 'password': server['password']}
         response = session.get(f"{base_url}/login", params=params, timeout=TIMEOUT)
         if response.status_code == 200:
-            data = response.json()
+            cleaned_text = clean_json_response(response.text)
+            data = json.loads(cleaned_text)
             if data.get('success') == 1:
                 return data.get('sid')
             logger.error(f"{server['name']}: Login failed - {data}")
@@ -115,27 +122,41 @@ def get_session(server: Dict) -> Optional[str]:
 
 
 def fetch_server_status(server: Dict, sid: str) -> Optional[Dict]:
-    """Получает статус сервера через TRASSIR API."""
+    """Получает статус сервера через TRASSIR API с использованием сессии"""
     start_time = time.time()
+    
     try:
         base_url = f"https://{server['host']}:{server['port']}"
         
-        # Получаем статус сервера
         response = session.get(f"{base_url}/health", params={'sid': sid}, timeout=TIMEOUT)
         if response.status_code != 200:
             logger.warning(f"{server['name']}: Health HTTP {response.status_code}")
             return None
-        data = response.json()
         
-        # Получаем список каналов
+        cleaned_text = clean_json_response(response.text)
+        try:
+            data = json.loads(cleaned_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"{server['name']}: JSON decode error - {e}")
+            logger.debug(f"Raw response (first 500 chars): {response.text[:500]}")
+            return None
+        
         channels_response = session.get(f"{base_url}/channels", params={'sid': sid}, timeout=TIMEOUT)
-        total_cameras = online_cameras = 0
+        
+        total_cameras = 0
+        online_cameras = 0
+        
         if channels_response.status_code == 200:
-            channels = channels_response.json().get('channels', [])
-            total_cameras = len(channels)
-            for ch in channels:
-                if ch.get('have_mainstream') == '1' or ch.get('have_substream') == '1':
-                    online_cameras += 1
+            cleaned_channels = clean_json_response(channels_response.text)
+            try:
+                channels_data = json.loads(cleaned_channels)
+                channels = channels_data.get('channels', [])
+                total_cameras = len(channels)
+                for ch in channels:
+                    if ch.get('have_mainstream') == '1' or ch.get('have_substream') == '1':
+                        online_cameras += 1
+            except json.JSONDecodeError as e:
+                logger.error(f"{server['name']}: Channels JSON decode error - {e}")
         
         duration = time.time() - start_time
         
@@ -155,13 +176,20 @@ def fetch_server_status(server: Dict, sid: str) -> Optional[Dict]:
             'scrape_duration': duration,
             'timestamp': datetime.now().timestamp()
         }
+        
+    except requests.exceptions.Timeout:
+        logger.error(f"{server['name']}: Timeout")
+        return None
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"{server['name']}: Connection error - {e}")
+        return None
     except Exception as e:
         logger.error(f"{server['name']}: Error - {e}")
-    return None
+        return None
 
 
 def update_metrics():
-    """Обновляет все метрики для всех серверов."""
+    """Обновляет все метрики для всех серверов"""
     for server in get_servers():
         logger.info(f"Scraping {server['name']} at {server['host']}:{server['port']}...")
         
@@ -190,14 +218,15 @@ def update_metrics():
             trassir_last_scrape.labels(server=server['name']).set(data['timestamp'])
             
             logger.info(f"✅ {server['name']}: {data['channels_online']}/{data['channels_total']} cameras, "
-                       f"CPU {data['cpu_load']}%, Uptime {data['uptime']}s")
+                       f"CPU {data['cpu_load']}%, Uptime {data['uptime']}s, "
+                       f"Archive: {data['disks_stat_main_days']:.1f}/{data['disks_stat_subs_days']:.1f} days")
         else:
             trassir_up.labels(server=server['name']).set(0)
             logger.warning(f"❌ {server['name']}: DOWN - no data")
 
 
 def background_scraper():
-    """Фоновый сбор метрик."""
+    """Фоновый сбор метрик"""
     logger.info(f"Starting scraper (interval: {SCRAPE_INTERVAL}s)")
     while True:
         try:
@@ -209,19 +238,19 @@ def background_scraper():
 
 @app.route('/metrics')
 def metrics():
-    """Endpoint для Prometheus."""
+    """Endpoint для Prometheus"""
     return Response(generate_latest(registry), mimetype='text/plain')
 
 
 @app.route('/health')
 def health():
-    """Health check endpoint."""
+    """Health check endpoint"""
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
 @app.route('/')
 def index():
-    """Информационная страница."""
+    """Информационная страница"""
     return {
         "service": "TRASSIR Prometheus Exporter",
         "version": "1.0.0",
@@ -232,7 +261,11 @@ def index():
     }
 
 
+# Запускаем фоновый сбор метрик при старте приложения (для Gunicorn)
+background_thread = threading.Thread(target=background_scraper, daemon=True)
+background_thread.start()
+
+# Для локального запуска (flask run)
 if __name__ == '__main__':
-    threading.Thread(target=background_scraper, daemon=True).start()
     logger.info(f"Starting TRASSIR exporter on port {EXPORTER_PORT}")
     app.run(host='0.0.0.0', port=EXPORTER_PORT, debug=False)
